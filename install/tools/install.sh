@@ -28,7 +28,8 @@ print_usage() {
   echo "Options:"
   echo "  --tools <list>    Comma-separated tools to install only (default: all)."
   echo "                    Example: --tools metrix,linex"
-  echo "  --pip-cmd <cmd>   Pip command (default: pip3). Example: --pip-cmd 'python3.12 -m pip'"
+  echo "  --pip-cmd <cmd>   Installer command (default: pip3). Also accepts pipx."
+  echo "                    Examples: --pip-cmd 'python3.12 -m pip', --pip-cmd pipx"
   echo "  -p <cmd>          Short for --pip-cmd"
   echo "  --repo-url <url>  Git repo URL (default: https://github.com/AMDResearch/intellikit.git)"
   echo "  --ref <ref>       Git branch/tag/commit (default: main)"
@@ -68,8 +69,31 @@ trim() {
 }
 
 # Require Python >= 3.10 for the interpreter used by PIP_CMD.
+# True if PIP_CMD is a pipx-based command (e.g. "pipx", "python3 -m pipx").
+is_pipx_cmd() {
+  [[ "$PIP_CMD" == "pipx" || "$PIP_CMD" == pipx\ * || "$PIP_CMD" == *" -m pipx"* ]]
+}
+
 require_python_ge_310() {
   local ver_line major minor py_exe
+
+  # pipx --version reports only the pipx version, not the interpreter, so verify
+  # the python3 that pipx will use to build the isolated environments.
+  if is_pipx_cmd; then
+    if ! command -v "${PIP_CMD%% *}" >/dev/null 2>&1; then
+      echo "Error: ${PIP_CMD%% *} not found. Install pipx first (e.g. 'python3 -m pip install --user pipx')." >&2
+      exit 1
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+      if python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+        return 0
+      fi
+      echo "Error: python3 must be 3.10 or newer for pipx installs (IntelliKit requirement)." >&2
+      exit 1
+    fi
+    echo "Error: python3 not found; cannot verify Python >= 3.10 for pipx." >&2
+    exit 1
+  fi
 
   if ! ver_line=$(eval "${PIP_CMD} --version 2>&1"); then
     echo "Error: cannot run: ${PIP_CMD} --version" >&2
